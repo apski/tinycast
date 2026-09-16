@@ -14,22 +14,25 @@ One entry per feature: what changed, why, and the commit that carries it.
   width/height when `core.palette.mode == .clipboard`.
 - Both persist per Mac in `AppSettings.clipboardWindowWidth`/`clipboardWindowHeight` (nil = default),
   excluded from settings backups as machine-local geometry, same as `clipboardListWidth`/`palettePosition`.
-- Resizing is native AppKit window resizing, not a custom SwiftUI drag handle: `PalettePanel`'s
-  `styleMask` gains `.resizable` only while collapsed is false and the mode is `.clipboard`, so the
-  OS's own edge/corner drag regions work, and so does any Accessibility-driven resize (a modifier-drag
-  window manager like Moves/Rectangle/Loop, which sets the frame directly and never goes through
-  `windowWillResize`). `PaletteWindowController.windowWillResize` clamps both dimensions for a live
-  interactive drag; `windowDidResize` is the catch-all that corrects and persists a frame set any
-  other way, guarded by `isSettingClipboardFrame` so its own correction — and every programmatic
-  resize from `positionPanel` — never re-enters or gets written back to settings as if the user had
-  dragged it. An earlier version used a custom SwiftUI bottom-edge `DragGesture`; that only handled
-  dragging inside the app and didn't make the window resizable at the AppKit/AX level, so external
-  tools like Moves couldn't grab it.
-- `windowDidResize`'s correction must never call `setFrame` synchronously: doing so from inside the
-  notification re-enters AppKit's live-resize display cycle and crashes
-  (`NSHostingView.updateAnimatedWindowSize` mid-transaction, `EXC_CRASH`/`SIGABRT` via
-  `_postWindowNeedsUpdateConstraints`). The correction now runs one `DispatchQueue.main.async` tick
-  later, outside that cycle.
+- Two SwiftUI `DragGesture` edge handles (`ClipboardHeightResizeHandle` on the bottom edge,
+  `ClipboardWidthResizeHandle` on the trailing edge, both in `RootPaletteView.swift`), each calling a
+  discrete `PaletteWindowController.resizeClipboardHeight`/`resizeClipboardWidth(to:commit:)` —
+  a direct `panel.setFrame` per drag tick, committed to `AppSettings` only on release.
+- **This deliberately is not AppKit's native `.resizable`/live window-edge resize.** An earlier
+  version added `.resizable` to `PalettePanel`'s `styleMask` in clipboard mode so the OS's own
+  edge/corner drag (and an Accessibility-driven resize, e.g. a modifier-drag window manager like
+  Moves/Rectangle/Loop) would work. It crashed: dragging an edge live sent the process straight into
+  `abort()` — `NSHostingView.updateAnimatedWindowSize` → `windowDidLayout` →
+  `_postWindowNeedsUpdateConstraints` throwing `NSInternalInconsistencyException`, uncaught,
+  `EXC_CRASH`/`SIGABRT`. Confirmed via `~/Library/Logs/DiagnosticReports/Tinycast-*.ips`: the crash
+  sits entirely inside AppKit/SwiftUI's own `_setFrameCommon:display:fromServer:` (the "fromServer"
+  live-resize-tracking path) — not in any of our delegate code, and it survived an interim fix that
+  deferred our own `windowDidResize` correction by a run-loop tick. An `NSHostingView`-backed
+  borderless panel with `hosting.sizingOptions = []` (see `PalettePanel.swift`, needed so the top
+  edge doesn't drift on a content swap) just doesn't survive a live/interactive AppKit resize on this
+  OS build. A gesture-driven, one-shot `setFrame` never enters that "fromServer" tracked path, so it
+  doesn't crash — the trade-off is that a resize can only come from inside the app; an external
+  modifier-drag tool has nothing to grab, since AX-settable size also needs `.resizable`.
 
 ## 2026-09-16 — Clipboard: skip pins on open, pin descriptions, resizable split
 

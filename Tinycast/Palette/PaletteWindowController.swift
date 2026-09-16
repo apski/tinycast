@@ -16,10 +16,6 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
     private var anchor: CGPoint?
     /// Live only between mouse-down and mouse-up on a drag handle; nil means a move was ours.
     private var drag: DragSession?
-    /// True only while `positionPanel`/`windowDidResize` are setting the frame themselves, so
-    /// `windowDidResize`'s own correction pass doesn't re-enter and a programmatic resize is
-    /// never mistaken for — and persisted as — one the user dragged.
-    private var isSettingClipboardFrame = false
     private let dropGuides = PaletteDropGuideController()
     /// ⌘V: `Edit ▸ Paste` claims it before `sendEvent` whenever the board also carries text.
     private var pasteMonitor: Any?
@@ -398,7 +394,7 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
     }
 
     /// Size and place against the session anchor, so the clipboard screen grows right and down.
-    /// Only the clipboard screen is edge-resizable; every other mode keeps the fixed panel size.
+    /// Only the clipboard screen reads a non-default size; every other mode keeps the fixed panel.
     private func positionPanel(_ panel: NSPanel, collapsed: Bool) {
         guard let anchor = resolveAnchor() else { return }
         let size = metrics.size
@@ -414,13 +410,8 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
             width = size.panelWidth
             height = size.panelHeight
         }
-        panel.styleMask =
-            (!collapsed && core.palette.mode == .clipboard)
-            ? panel.styleMask.union(.resizable) : panel.styleMask.subtracting(.resizable)
         let frame = NSRect(x: anchor.x, y: anchor.y - height, width: width, height: height)
-        isSettingClipboardFrame = true
         panel.setFrame(frame, display: true)
-        isSettingClipboardFrame = false
     }
 
     /// The persisted clipboard height, clamped to the range dragging is allowed within.
@@ -441,57 +432,38 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - Clipboard resize
 
-    /// A live edge/corner drag: both dimensions clamp to the range dragging is allowed within.
-    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-        guard core.palette.mode == .clipboard else { return sender.frame.size }
-        let width = min(
-            max(frameSize.width, Theme.Size.clipboardWindowWidthRange.lowerBound),
-            Theme.Size.clipboardWindowWidthRange.upperBound)
-        let height = min(
-            max(frameSize.height, Theme.Size.clipboardWindowHeightRange.lowerBound),
+    /// Drags the clipboard window's bottom edge; `commit` persists the drag's end.
+    /// Deliberately not AppKit's native `.resizable`/live-drag resize: an `NSHostingView`-backed
+    /// borderless panel crashes mid-live-resize (`NSHostingView.updateAnimatedWindowSize` throws
+    /// from inside `windowDidLayout`, `EXC_CRASH`/`SIGABRT`) — a discrete `setFrame` from our own
+    /// gesture, outside that "fromServer" tracked-resize path, does not.
+    func resizeClipboardHeight(to height: CGFloat, commit: Bool) {
+        guard let panel, let anchor = resolveAnchor() else { return }
+        let size = metrics.size
+        let clamped = min(
+            max(height, Theme.Size.clipboardWindowHeightRange.lowerBound),
             Theme.Size.clipboardWindowHeightRange.upperBound)
-        return NSSize(width: width, height: height)
+        let width = clipboardWidth(size: size)
+        panel.setFrame(
+            NSRect(x: anchor.x, y: anchor.y - clamped, width: width, height: clamped),
+            display: true)
+        guard commit else { return }
+        core.settings.clipboardWindowHeight = Double(clamped)
     }
 
-    /// Catches a resize `windowWillResize` never saw — Accessibility sets the frame directly,
-    /// the way a third-party modifier-drag window manager does, and skips that delegate call.
-    func windowDidResize(_ notification: Notification) {
-        guard let panel, !isSettingClipboardFrame, core.palette.mode == .clipboard else { return }
-        let width = min(
-            max(panel.frame.width, Theme.Size.clipboardWindowWidthRange.lowerBound),
+    /// Drags the clipboard window's trailing edge; `commit` persists the drag's end.
+    func resizeClipboardWidth(to width: CGFloat, commit: Bool) {
+        guard let panel, let anchor = resolveAnchor() else { return }
+        let size = metrics.size
+        let clamped = min(
+            max(width, Theme.Size.clipboardWindowWidthRange.lowerBound),
             Theme.Size.clipboardWindowWidthRange.upperBound)
-        let height = min(
-            max(panel.frame.height, Theme.Size.clipboardWindowHeightRange.lowerBound),
-            Theme.Size.clipboardWindowHeightRange.upperBound)
-        core.settings.clipboardWindowWidth = Double(width)
-        core.settings.clipboardWindowHeight = Double(height)
-        guard panel.frame.width != width || panel.frame.height != height else { return }
-        // `setFrame` from inside this notification re-enters AppKit's live-resize display cycle
-        // and crashes (NSHostingView.updateAnimatedWindowSize mid-transaction); one tick later
-        // is outside it, and invisible for a resize Accessibility drives directly.
-        DispatchQueue.main.async { [weak self] in
-            self?.correctClipboardFrame()
-        }
-    }
-
-    /// Forces the clipboard window back to the clamped width/height, top-left anchored.
-    private func correctClipboardFrame() {
-        guard let panel, core.palette.mode == .clipboard, let anchor = resolveAnchor() else {
-            return
-        }
-        let width = min(
-            max(panel.frame.width, Theme.Size.clipboardWindowWidthRange.lowerBound),
-            Theme.Size.clipboardWindowWidthRange.upperBound)
-        let height = min(
-            max(panel.frame.height, Theme.Size.clipboardWindowHeightRange.lowerBound),
-            Theme.Size.clipboardWindowHeightRange.upperBound)
-        let corrected = NSRect(x: anchor.x, y: anchor.y - height, width: width, height: height)
-        guard panel.frame != corrected else { return }
-        isSettingClipboardFrame = true
-        panel.setFrame(corrected, display: true)
-        isSettingClipboardFrame = false
-        core.settings.clipboardWindowWidth = Double(width)
-        core.settings.clipboardWindowHeight = Double(height)
+        let height = clipboardHeight(size: size)
+        panel.setFrame(
+            NSRect(x: anchor.x, y: anchor.y - height, width: clamped, height: height),
+            display: true)
+        guard commit else { return }
+        core.settings.clipboardWindowWidth = Double(clamped)
     }
 
     /// The display to anchor to; never `NSScreen.main`, which follows the focused window.
