@@ -165,6 +165,17 @@ final class AppSettings {
         }
     }
 
+    /// The clipboard screen's window width, dragged from its side edge; nil is the default panel width.
+    var clipboardWindowWidth: Double? {
+        didSet {
+            if let clipboardWindowWidth {
+                defaults.set(clipboardWindowWidth, forKey: Key.clipboardWindowWidth.rawValue)
+            } else {
+                defaults.removeObject(forKey: Key.clipboardWindowWidth.rawValue)
+            }
+        }
+    }
+
     /// What ↵ does on a clipboard entry; ⌘↵ always does the other one.
     var clipboardDefaultAction: ClipboardDefaultAction {
         didSet {
@@ -544,6 +555,9 @@ final class AppSettings {
         clipboardWindowHeight =
             defaults.object(forKey: Key.clipboardWindowHeight.rawValue) != nil
             ? defaults.double(forKey: Key.clipboardWindowHeight.rawValue) : nil
+        clipboardWindowWidth =
+            defaults.object(forKey: Key.clipboardWindowWidth.rawValue) != nil
+            ? defaults.double(forKey: Key.clipboardWindowWidth.rawValue) : nil
         clipboardDefaultAction =
             defaults.string(forKey: Key.clipboardDefaultAction.rawValue)
             .flatMap(ClipboardDefaultAction.init) ?? .paste

@@ -84,6 +84,8 @@ enum SettingsBackupCoverage {
             "Machine-local geometry: a column width dragged to fit this Mac's own screen.",
         AppSettingsKey.clipboardWindowHeight.rawValue:
             "Machine-local geometry: a window height dragged to fit this Mac's own screen.",
+        AppSettingsKey.clipboardWindowWidth.rawValue:
+            "Machine-local geometry: a window width dragged to fit this Mac's own screen.",
         AppSettingsKey.autoSwitchInputSource.rawValue:
             "Names a keyboard input source installed on this Mac; another Mac may not have it.",
         AppSettingsKey.calendarEnabled.rawValue:

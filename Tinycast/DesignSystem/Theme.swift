@@ -59,6 +59,8 @@ enum Theme {
         static let panelHeight: CGFloat = 475
         /// How tall the clipboard screen's window may grow; the floor is the shared default height.
         static let clipboardWindowHeightRange: ClosedRange<CGFloat> = panelHeight...900
+        /// How wide the clipboard screen's window may grow; the floor is the shared default width.
+        static let clipboardWindowWidthRange: ClosedRange<CGFloat> = panelWidth...1100
         /// Opening size on a first run and the floor: below it the title bar's own parts collide.
         static let noteWindow = CGSize(width: 440, height: 180)
         static let noteEditorInset: CGFloat = 16
