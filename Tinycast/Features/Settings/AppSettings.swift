@@ -143,6 +143,17 @@ final class AppSettings {
         didSet { defaults.set(clipboardDisabledApps, forKey: Key.clipboardDisabledApps.rawValue) }
     }
 
+    /// The list column's width against the preview, dragged from the divider; nil is the metrics default.
+    var clipboardListWidth: Double? {
+        didSet {
+            if let clipboardListWidth {
+                defaults.set(clipboardListWidth, forKey: Key.clipboardListWidth.rawValue)
+            } else {
+                defaults.removeObject(forKey: Key.clipboardListWidth.rawValue)
+            }
+        }
+    }
+
     /// What ↵ does on a clipboard entry; ⌘↵ always does the other one.
     var clipboardDefaultAction: ClipboardDefaultAction {
         didSet {
@@ -516,6 +527,9 @@ final class AppSettings {
         clipboardDisabledApps =
             defaults.stringArray(forKey: Key.clipboardDisabledApps.rawValue)
             ?? ["com.apple.keychainaccess", "com.apple.Passwords"]
+        clipboardListWidth =
+            defaults.object(forKey: Key.clipboardListWidth.rawValue) != nil
+            ? defaults.double(forKey: Key.clipboardListWidth.rawValue) : nil
         clipboardDefaultAction =
             defaults.string(forKey: Key.clipboardDefaultAction.rawValue)
             .flatMap(ClipboardDefaultAction.init) ?? .paste

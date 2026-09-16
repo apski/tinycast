@@ -23,6 +23,11 @@ struct ClipboardScreen: PaletteScreen {
         return rows.indices.contains(selection) ? rows[selection] : nil
     }
 
+    /// Skip the Pinned block: a reset should land on the most recent entry, not a stale pin.
+    func resetSelection() -> Int {
+        rows.firstIndex(where: { !$0.isPinned }) ?? 0
+    }
+
     func actions(at selection: Int) -> PopoverMenuContent? {
         guard let item = item(at: selection) else { return nil }
         return ClipboardActionsMenu.content(
@@ -121,28 +126,28 @@ struct ClipboardScreen: PaletteScreen {
             EmptyResults(text: vm.clipboardFilter.emptyMessage)
         } else {
             let selected = item(at: selection)
-            HStack(spacing: 0) {
-                ClipboardList(
-                    results: rows,
-                    selectedID: selected?.id,
-                    scroll: scroll,
-                    onSelect: { item in vm.selection = rows.firstIndex(of: item) ?? 0 },
-                    onActivate: { activate(at: vm.selection) },
-                    onActions: { item in
-                        if let index = rows.firstIndex(of: item) { vm.selection = index }
-                        openActions()
-                    },
-                    onDragPayload: { core.clipboardCoordinator.dragPayload(for: $0) },
-                    onDropped: { core.clipboardCoordinator.clipDropped() }
-                )
-                .frame(width: metrics.size.clipboardListWidth)
-                Rectangle()
-                    .fill(Theme.Colors.separator)
-                    .frame(width: 1)
-                ClipboardPreview(item: selected)
-            }
+            ClipboardSplitView(
+                results: rows,
+                selected: selected,
+                scroll: scroll,
+                onSelect: { item in vm.selection = rows.firstIndex(of: item) ?? 0 },
+                onActivate: { activate(at: vm.selection) },
+                onActions: { item in
+                    if let index = rows.firstIndex(of: item) { vm.selection = index }
+                    openActions()
+                },
+                onDragPayload: { core.clipboardCoordinator.dragPayload(for: $0) },
+                onDropped: { core.clipboardCoordinator.clipDropped() },
+                baseWidth: core.settings.clipboardListWidth.map { CGFloat($0) }
+                    ?? metrics.size.clipboardListWidth,
+                widthRange: Self.listWidthRange,
+                onResize: { core.settings.clipboardListWidth = Double($0) }
+            )
         }
     }
+
+    /// Wide enough to read a row, narrow enough that the preview still means something.
+    private static let listWidthRange: ClosedRange<CGFloat> = 220...440
 }
 
 /// Change key for the follow-the-moved-row handler, read from the store, not the results.
@@ -185,6 +190,13 @@ enum ClipboardActionsMenu {
                     title: "Unpin Entry", systemImage: "pin.slash", startsSection: true, shortcut: "⌘."
                 ) {
                     core.clipboardCoordinator.togglePinnedClip(item)
+                })
+            items.append(
+                PopoverMenuItem(
+                    title: item.pinNote == nil ? "Add Description" : "Edit Description",
+                    systemImage: "text.append"
+                ) {
+                    Task { await core.clipboardCoordinator.editPinDescription(item) }
                 })
         } else {
             items.append(

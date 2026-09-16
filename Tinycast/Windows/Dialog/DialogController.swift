@@ -107,6 +107,23 @@ final class DialogController: NSObject, NSWindowDelegate {
         return state.values
     }
 
+    /// A single-field text prompt; nil on cancel, otherwise the trimmed text (empty clears it).
+    func promptText(
+        title: String, message: String?, symbol: String?, placeholder: String,
+        initialValue: String, confirmTitle: String
+    ) async -> String? {
+        let state = TextPromptState(text: initialValue, placeholder: placeholder)
+        let request = DialogRequest(
+            title: title, message: message, symbol: symbol, tone: .neutral,
+            actions: [
+                DialogAction(title: confirmTitle),
+                DialogAction(title: "Cancel", role: .cancel)
+            ],
+            defaultIndex: 0, cancelIndex: 1, accessory: .textPrompt(state))
+        guard await present(request) == 0 else { return nil }
+        return state.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func present(_ request: DialogRequest) async -> Int {
         // Keyed on the continuation, so a panel still fading can't swallow the next.
         guard continuation == nil else { return request.cancelIndex }

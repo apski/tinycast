@@ -18,6 +18,8 @@ struct ClipboardItem: Identifiable, Hashable, Sendable {
     let sourceBundleID: String?
     /// When the entry was pinned; pins lead the list and are exempt from pruning.
     let pinnedAt: Date?
+    /// A short label for a pin, shown under its row title; nil for an unpinned entry.
+    let pinNote: String?
 
     var isPinned: Bool { pinnedAt != nil }
 
@@ -45,7 +47,7 @@ struct ClipboardItem: Identifiable, Hashable, Sendable {
 
     init(
         id: UUID, kind: Kind, text: String?, imagePath: String?, createdAt: Date,
-        sourceBundleID: String?, pinnedAt: Date? = nil
+        sourceBundleID: String?, pinnedAt: Date? = nil, pinNote: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -54,6 +56,7 @@ struct ClipboardItem: Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
         self.sourceBundleID = sourceBundleID
         self.pinnedAt = pinnedAt
+        self.pinNote = pinNote
     }
 
     /// Copy with the two fields the store rewrites; the pin is always stated outright.
@@ -61,7 +64,14 @@ struct ClipboardItem: Identifiable, Hashable, Sendable {
         ClipboardItem(
             id: id, kind: kind, text: text, imagePath: imagePath,
             createdAt: createdAt ?? self.createdAt, sourceBundleID: sourceBundleID,
-            pinnedAt: pinnedAt)
+            pinnedAt: pinnedAt, pinNote: pinNote)
+    }
+
+    /// Copy with only the pin's description changed; nil clears it.
+    func with(pinNote: String?) -> ClipboardItem {
+        ClipboardItem(
+            id: id, kind: kind, text: text, imagePath: imagePath, createdAt: createdAt,
+            sourceBundleID: sourceBundleID, pinnedAt: pinnedAt, pinNote: pinNote)
     }
 
     /// Case-insensitive substring match: how the store filters without FTS.
@@ -157,9 +167,13 @@ final class ClipboardStore {
     nonisolated private static let searchLimit = 200
 
     nonisolated private static let insertSQL = """
-        INSERT INTO items(id, kind, text, image_path, created_at, source_app, pinned_at)
-        VALUES(?,?,?,?,?,?,?)
+        INSERT INTO items(id, kind, text, image_path, created_at, source_app, pinned_at, pin_note)
+        VALUES(?,?,?,?,?,?,?,?)
         """
+
+    /// The seven original columns plus `pin_note`, read in this order everywhere a row is decoded.
+    nonisolated private static let selectColumns =
+        "id, kind, text, image_path, created_at, source_app, pinned_at, pin_note"
 
     private static let schema = """
         CREATE TABLE IF NOT EXISTS items(
@@ -225,6 +239,7 @@ final class ClipboardStore {
     @ObservationIgnored private var searchStmt: OpaquePointer?
     @ObservationIgnored private var deleteByIDStmt: OpaquePointer?
     @ObservationIgnored private var pinStmt: OpaquePointer?
+    @ObservationIgnored private var pinNoteStmt: OpaquePointer?
     @ObservationIgnored private var staleImagesStmt: OpaquePointer?
     @ObservationIgnored private var deleteStaleStmt: OpaquePointer?
 
@@ -352,6 +367,25 @@ final class ClipboardStore {
         if item.isPinned { unpin(item) } else { pin(item) }
     }
 
+    /// A pin's description; nil clears it. Only meaningful while the row is pinned.
+    func setPinNote(_ item: ClipboardItem, note: String?) {
+        let updated = item.with(pinNote: note)
+        if let stmt = pinNoteStmt {
+            if let note {
+                sqlite3_bind_text(stmt, 1, note, -1, SQLITE_TRANSIENT)
+            } else {
+                sqlite3_bind_null(stmt, 1)
+            }
+            sqlite3_bind_text(stmt, 2, item.id.uuidString, -1, SQLITE_TRANSIENT)
+            sqlite3_step(stmt)
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+        }
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+            items[index] = updated
+        }
+    }
+
     func remove(_ item: ClipboardItem) {
         textSearchMatches.removeAll { $0.id == item.id }
         if let stmt = deleteByIDStmt {
@@ -395,7 +429,7 @@ final class ClipboardStore {
         guard
             let stmt = prepare(
                 """
-                SELECT id, kind, text, image_path, created_at, source_app, pinned_at
+                SELECT \(Self.selectColumns)
                 FROM items WHERE kind IN ('image', 'file')
                   AND id NOT IN (SELECT item_id FROM item_text)
                   AND id NOT IN (SELECT item_id FROM item_text_failures
@@ -603,7 +637,8 @@ final class ClipboardStore {
         sqlite3_progress_handler(db, 1000, { _ in Task.isCancelled ? 1 : 0 }, nil)
         let isShort = query.count < 3
         let kind = filter == .image ? "i.kind = 'image'" : filter == .file ? "i.kind = 'file'" : "1"
-        let columns = "i.id, i.kind, i.text, i.image_path, i.created_at, i.source_app, i.pinned_at"
+        let columns =
+            "i.id, i.kind, i.text, i.image_path, i.created_at, i.source_app, i.pinned_at, i.pin_note"
         let sql =
             isShort
             ? """
@@ -641,7 +676,7 @@ final class ClipboardStore {
             guard let item = row(stmt) else { continue }
             if let residentIDs, !residentIDs.contains(item.id) { continue }
             if isShort || item.isPinned,
-                columnString(stmt, 7)?.localizedCaseInsensitiveContains(query) != true
+                columnString(stmt, 8)?.localizedCaseInsensitiveContains(query) != true
             {
                 continue
             }
@@ -761,6 +796,11 @@ final class ClipboardStore {
         } else {
             sqlite3_bind_null(stmt, 7)
         }
+        if let pinNote = item.pinNote {
+            sqlite3_bind_text(stmt, 8, pinNote, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(stmt, 8)
+        }
         sqlite3_step(stmt)
         sqlite3_reset(stmt)
         sqlite3_clear_bindings(stmt)
@@ -821,11 +861,12 @@ final class ClipboardStore {
                 == SQLITE_OK,
             sqlite3_exec(db, Self.schema, nil, nil, nil) == SQLITE_OK
         else { return false }
+        migratePinNoteColumn()
         insertStmt = prepare(Self.insertSQL)
         // Two indexed branches, deliberately not one OR. See docs/features/clipboard.md#store.
         loadStmt = prepare(
             """
-            SELECT id, kind, text, image_path, created_at, source_app, pinned_at FROM (
+            SELECT \(Self.selectColumns) FROM (
               SELECT rowid AS rid, * FROM items WHERE rowid >= ?1
               UNION ALL
               SELECT rowid AS rid, * FROM items WHERE pinned_at IS NOT NULL AND rowid < ?1
@@ -835,7 +876,8 @@ final class ClipboardStore {
             "SELECT rowid FROM items WHERE pinned_at IS NULL ORDER BY rowid DESC LIMIT 1 OFFSET ?")
         searchStmt = prepare(
             """
-            SELECT i.id, i.kind, i.text, i.image_path, i.created_at, i.source_app, i.pinned_at
+            SELECT i.id, i.kind, i.text, i.image_path, i.created_at, i.source_app, i.pinned_at,
+              i.pin_note
             FROM (
               SELECT rowid FROM items_fts WHERE items_fts MATCH ?
               ORDER BY rowid DESC LIMIT \(Self.searchLimit)
@@ -844,6 +886,7 @@ final class ClipboardStore {
         deleteByIDStmt = prepare("DELETE FROM items WHERE id = ?")
         // Only ever sets a stamp: unpinning rewrites the whole row so it leads the history again.
         pinStmt = prepare("UPDATE items SET pinned_at = ? WHERE id = ?")
+        pinNoteStmt = prepare("UPDATE items SET pin_note = ? WHERE id = ?")
         staleImagesStmt = prepare(
             """
             SELECT image_path FROM items
@@ -851,8 +894,21 @@ final class ClipboardStore {
             """)
         deleteStaleStmt = prepare("DELETE FROM items WHERE created_at < ? AND pinned_at IS NULL")
         return insertStmt != nil && loadStmt != nil && windowFloorStmt != nil && searchStmt != nil
-            && deleteByIDStmt != nil && pinStmt != nil && staleImagesStmt != nil
-            && deleteStaleStmt != nil
+            && deleteByIDStmt != nil && pinStmt != nil && pinNoteStmt != nil
+            && staleImagesStmt != nil && deleteStaleStmt != nil
+    }
+
+    /// `items` predates `pin_note`; add it once for a database created before this column existed.
+    private func migratePinNoteColumn() {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(items)", -1, &stmt, nil) == SQLITE_OK else {
+            return
+        }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if Self.columnString(stmt, 1) == "pin_note" { return }
+        }
+        sqlite3_exec(db, "ALTER TABLE items ADD COLUMN pin_note TEXT", nil, nil, nil)
     }
 
     private func prepare(_ sql: String) -> OpaquePointer? {
@@ -863,7 +919,7 @@ final class ClipboardStore {
 
     private func closeDatabase() {
         [
-            insertStmt, loadStmt, windowFloorStmt, searchStmt, deleteByIDStmt, pinStmt,
+            insertStmt, loadStmt, windowFloorStmt, searchStmt, deleteByIDStmt, pinStmt, pinNoteStmt,
             staleImagesStmt, deleteStaleStmt
         ].forEach { sqlite3_finalize($0) }
         insertStmt = nil
@@ -872,6 +928,7 @@ final class ClipboardStore {
         searchStmt = nil
         deleteByIDStmt = nil
         pinStmt = nil
+        pinNoteStmt = nil
         staleImagesStmt = nil
         deleteStaleStmt = nil
         sqlite3_close_v2(db)
@@ -961,7 +1018,7 @@ final class ClipboardStore {
         defer { sqlite3_close_v2(db) }
         var stmt: OpaquePointer?
         let sql = """
-            SELECT id, kind, text, image_path, created_at, source_app, pinned_at
+            SELECT \(Self.selectColumns)
             FROM items ORDER BY rowid
             """
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
@@ -979,7 +1036,8 @@ final class ClipboardStore {
         return ClipboardItem(
             id: id, kind: kind, text: columnString(stmt, 2), imagePath: columnString(stmt, 3),
             createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4)),
-            sourceBundleID: columnString(stmt, 5), pinnedAt: columnDate(stmt, 6))
+            sourceBundleID: columnString(stmt, 5), pinnedAt: columnDate(stmt, 6),
+            pinNote: columnString(stmt, 7))
     }
 
     nonisolated private static func columnDate(_ stmt: OpaquePointer?, _ index: Int32) -> Date? {

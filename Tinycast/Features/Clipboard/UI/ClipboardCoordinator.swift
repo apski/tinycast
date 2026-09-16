@@ -184,6 +184,17 @@ final class ClipboardCoordinator {
         palette.followToken = UUID()
     }
 
+    /// Prompts for a pin's description; only reachable from a pinned row's Actions menu.
+    func editPinDescription(_ item: ClipboardItem) async {
+        guard
+            let note = await core.promptText(
+                title: "Pin Description", message: "Shown under this pin in the list.",
+                symbol: "pin", placeholder: "Description", initialValue: item.pinNote ?? "",
+                confirmTitle: "Save")
+        else { return }
+        clipboardStore.setPinNote(item, note: note.isEmpty ? nil : note)
+    }
+
     /// Select `item`'s row as currently filtered; a moved row isn't always index 0.
     private func selectClip(_ item: ClipboardItem) {
         palette.selection =

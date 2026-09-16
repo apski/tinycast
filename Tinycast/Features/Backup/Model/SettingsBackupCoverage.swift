@@ -80,6 +80,8 @@ enum SettingsBackupCoverage {
             "Doubles as consent to run third-party JavaScript; an import must not switch it on.",
         AppSettingsKey.palettePosition.rawValue:
             "Machine-local geometry: every entry names a display this Mac has, and no other one.",
+        AppSettingsKey.clipboardListWidth.rawValue:
+            "Machine-local geometry: a column width dragged to fit this Mac's own screen.",
         AppSettingsKey.autoSwitchInputSource.rawValue:
             "Names a keyboard input source installed on this Mac; another Mac may not have it.",
         AppSettingsKey.calendarEnabled.rawValue:

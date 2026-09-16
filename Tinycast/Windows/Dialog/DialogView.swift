@@ -41,6 +41,7 @@ struct DialogView: View {
             case .volume(let volume): VolumeSlider(state: volume)
             case .eventDraft(let draft): EventDraftFields(state: draft)
             case .snippetArguments(let arguments): SnippetArgumentFields(state: arguments)
+            case .textPrompt(let prompt): TextPromptFields(state: prompt)
             case nil: EmptyView()
             }
 

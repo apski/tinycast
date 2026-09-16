@@ -139,6 +139,7 @@ struct InterfaceMetrics: Equatable, Sendable {
 
         var rowTitle: Font { font(Theme.Typography.rowTitle, .body) }
         var rowTrailing: Font { font(Theme.Typography.rowTrailing, .callout) }
+        var rowSubtitle: Font { font(Theme.Typography.rowSubtitle, .caption1) }
         var sectionHeader: Font { font(Theme.Typography.sectionHeader, .subheadline, .medium) }
         var panelTitle: Font { font(Theme.Typography.panelTitle, .headline) }
         var calcResult: Font { font(Theme.Typography.calcResult, .title1) }

@@ -95,6 +95,86 @@ struct ClipboardList: View {
     }
 }
 
+/// The list beside its preview, split by a divider the reader can drag; the width persists.
+struct ClipboardSplitView: View {
+    let results: [ClipboardItem]
+    let selected: ClipboardItem?
+    let scroll: ScrollIntent
+    let onSelect: (ClipboardItem) -> Void
+    let onActivate: () -> Void
+    let onActions: (ClipboardItem) -> Void
+    let onDragPayload: (ClipboardItem) -> ClipDragPayload?
+    let onDropped: () -> Void
+    /// The persisted width, or nil for the metrics default.
+    let baseWidth: CGFloat
+    let widthRange: ClosedRange<CGFloat>
+    let onResize: (CGFloat) -> Void
+
+    /// Tracks the divider mid-drag; nil once released, when `baseWidth` has caught up.
+    @State private var liveWidth: CGFloat?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ClipboardList(
+                results: results, selectedID: selected?.id, scroll: scroll, onSelect: onSelect,
+                onActivate: onActivate, onActions: onActions, onDragPayload: onDragPayload,
+                onDropped: onDropped
+            )
+            .frame(width: liveWidth ?? baseWidth)
+            ClipboardDivider(currentWidth: liveWidth ?? baseWidth, range: widthRange) { width, ended in
+                liveWidth = width
+                if ended {
+                    onResize(width)
+                    liveWidth = nil
+                }
+            }
+            ClipboardPreview(item: selected)
+        }
+    }
+}
+
+/// A 1pt line with a wider drag/hover target; reports the dragged width, clamped to `range`.
+private struct ClipboardDivider: View {
+    /// The list's width right now, so a fresh drag starts from wherever it currently sits.
+    let currentWidth: CGFloat
+    let range: ClosedRange<CGFloat>
+    /// The candidate width and whether the drag ended; the caller decides what either means.
+    let onChange: (CGFloat, Bool) -> Void
+
+    private static let hitWidth: CGFloat = 7
+
+    /// Captured once per drag, so `currentWidth` moving mid-drag can't compound the delta.
+    @State private var startWidth: CGFloat?
+
+    var body: some View {
+        Rectangle()
+            .fill(Theme.Colors.separator)
+            .frame(width: 1)
+            .frame(width: Self.hitWidth)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let base = startWidth ?? currentWidth
+                        startWidth = base
+                        onChange(clamp(base + value.translation.width), false)
+                    }
+                    .onEnded { value in
+                        let base = startWidth ?? currentWidth
+                        onChange(clamp(base + value.translation.width), true)
+                        startWidth = nil
+                    }
+            )
+    }
+
+    private func clamp(_ width: CGFloat) -> CGFloat {
+        min(max(width, range.lowerBound), range.upperBound)
+    }
+}
+
 /// Coarse date buckets for sectioning, ordered newest-first by raw value.
 enum DateBucket: Int {
     case today, yesterday, thisWeek, thisMonth, earlier
@@ -145,10 +225,19 @@ private struct ClipboardRow: View {
     var body: some View {
         HStack(spacing: metrics.spacing.lg) {
             thumbnail(item.colorValue)
-            Text(previewText)
-                .font(metrics.typography.menuRow)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            VStack(alignment: .leading, spacing: metrics.spacing.xxs) {
+                Text(previewText)
+                    .font(metrics.typography.menuRow)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let note = item.pinNote, !note.isEmpty {
+                    Text(note)
+                        .font(metrics.typography.rowSubtitle)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
             Spacer(minLength: 0)
             if let slot, palette.commandHeld {
                 HStack(spacing: metrics.spacing.xxs) {

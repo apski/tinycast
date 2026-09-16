@@ -15,4 +15,5 @@ struct BackupClipboardItem: Codable, Sendable, Equatable {
     var createdAt: Date
     var sourceBundleID: String?
     var pinnedAt: Date?
+    var pinNote: String?
 }

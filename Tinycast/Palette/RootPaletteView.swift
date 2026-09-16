@@ -326,7 +326,7 @@ struct RootPaletteView: View {
             }
             .onChange(of: vm.query) {
                 if vm.collapseQueryLineBreaks() { return }
-                vm.selection = 0
+                vm.selection = screen.resetSelection()
                 scroll = ScrollIntent(kind: .top)
                 if vm.mode == .fileSearch { fileSearch.search(vm.query, filter: vm.fileSearchFilter) }
                 if vm.mode == .menuSearch { menuSearch.filter(vm.query) }
@@ -344,7 +344,7 @@ struct RootPaletteView: View {
             .modifier(ExtensionSelectionForwarder(screen: extensionScreen, selection: vm.selection))
             // A narrower list means the old index points at a different row, or at none.
             .onChange(of: vm.clipboardFilter) {
-                vm.selection = 0
+                vm.selection = screen.resetSelection()
                 scroll = ScrollIntent(kind: .top)
             }
             // The filter is part of the query, so narrowing re-runs it rather than thinning rows.
@@ -354,7 +354,7 @@ struct RootPaletteView: View {
                 fileSearch.search(vm.query, filter: vm.fileSearchFilter)
             }
             .onChange(of: vm.mode) {
-                vm.selection = 0
+                vm.selection = screen.resetSelection()
                 vm.clipboardFilter = .all
                 vm.fileSearchFilter = .all
                 vm.emojiCategoryFilter = .all
@@ -424,7 +424,7 @@ struct RootPaletteView: View {
                 if vm.isControlListOpen { return .ignored }
                 if isCollapsed {
                     // The compact bar shows no selection, so Down reveals the list's first row.
-                    vm.selection = 0
+                    vm.selection = screen.resetSelection()
                     core.paletteCoordinator.expandFromCompact()
                     return .handled
                 }

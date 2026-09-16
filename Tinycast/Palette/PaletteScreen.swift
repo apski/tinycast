@@ -137,6 +137,8 @@ private extension MenuPanelCorner {
     )
         -> PaletteHeaderAccessory?
     @ViewBuilder func body(selection: Int, scroll: ScrollIntent) -> AnyView
+    /// Where a reset (fresh open, a typed query, a changed filter) lands the highlight.
+    func resetSelection() -> Int
 }
 
 extension PaletteScreen {
@@ -157,6 +159,7 @@ extension PaletteScreen {
     func pasteKeepingWindowOpen(at selection: Int) -> Bool { false }
     func perform(_ shortcut: PaletteShortcut, at selection: Int) -> Bool { false }
     func move(_ delta: Int, axis: PaletteAxis, from selection: Int) -> Int? { nil }
+    func resetSelection() -> Int { 0 }
     func headerAccessory(
         at selection: Int, focus: FocusState<String?>.Binding
     )

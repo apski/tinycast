@@ -649,6 +649,16 @@ final class AppCore {
             defaultIndex: defaultIndex)
     }
 
+    /// A single-field text prompt; nil on cancel, otherwise the trimmed text (empty clears it).
+    func promptText(
+        title: String, message: String?, symbol: String?, placeholder: String,
+        initialValue: String, confirmTitle: String
+    ) async -> String? {
+        await dialogs.promptText(
+            title: title, message: message, symbol: symbol, placeholder: placeholder,
+            initialValue: initialValue, confirmTitle: confirmTitle)
+    }
+
     /// A failure with one usable second option; `true` when the user takes it.
     func reportFailure(
         title: String, message: String, symbol: String, recovery: String?

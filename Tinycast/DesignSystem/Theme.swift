@@ -284,6 +284,8 @@ enum Theme {
         static let headerIcon = Font.system(size: 18, weight: .medium)
         static let rowTitle = Font.body
         static let rowTrailing = Font.callout
+        /// A pin's description, under its row title.
+        static let rowSubtitle = Font.caption
         static let sectionHeader = Font.subheadline.weight(.medium)
         /// A borderless panel's own title, which names the surface rather than a section inside it.
         static let panelTitle = Font.headline
