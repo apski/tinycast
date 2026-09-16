@@ -16,6 +16,9 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
     private var anchor: CGPoint?
     /// Live only between mouse-down and mouse-up on a drag handle; nil means a move was ours.
     private var drag: DragSession?
+    /// True while this controller sets the frame itself, so the delegate callbacks that fire for
+    /// it never persist a programmatic placement as if the user had dragged the window there.
+    private var isSettingFrame = false
     private let dropGuides = PaletteDropGuideController()
     /// ⌘V: `Edit ▸ Paste` claims it before `sendEvent` whenever the board also carries text.
     private var pasteMonitor: Any?
@@ -247,8 +250,20 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
         guard let panel else { return }
         let moved = CGPoint(x: panel.frame.minX, y: panel.frame.maxY)
         anchor = moved
-        guard drag != nil else { return }
-        trackDrag(to: moved)
+        if drag != nil {
+            trackDrag(to: moved)
+            return
+        }
+        guard !isSettingFrame else { return }
+        rememberPosition(moved)
+    }
+
+    /// A move that was not our own drag handle's — a third-party modifier-drag window manager,
+    /// say — is remembered where it landed. `endDrag` owns our own session, snap-to-home included.
+    private func rememberPosition(_ topLeft: CGPoint) {
+        guard let screen = panel?.screen ?? targetScreen() else { return }
+        core.settings.setPalettePosition(
+            PalettePlacement.offset(of: topLeft, on: screen.visibleFrame), on: screen.displayKey)
     }
 
     // MARK: - Dragging
@@ -410,8 +425,28 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
             width = size.panelWidth
             height = size.panelHeight
         }
+        // `.resizable` only here: it is what lets an edge drag, and an AX resize, reach the window.
+        // `min`/`maxSize` clamp the drag natively, so no delegate has to police the size mid-drag.
+        let resizable = !collapsed && core.palette.mode == .clipboard
+        if resizable {
+            panel.minSize = NSSize(
+                width: Theme.Size.clipboardWindowWidthRange.lowerBound,
+                height: Theme.Size.clipboardWindowHeightRange.lowerBound)
+            panel.maxSize = NSSize(
+                width: Theme.Size.clipboardWindowWidthRange.upperBound,
+                height: Theme.Size.clipboardWindowHeightRange.upperBound)
+        } else {
+            panel.minSize = NSSize(width: width, height: height)
+            panel.maxSize = NSSize(width: width, height: height)
+        }
+        if panel.styleMask.contains(.resizable) != resizable {
+            if resizable { panel.styleMask.insert(.resizable) } else { panel.styleMask.remove(.resizable) }
+            (panel as? PalettePanel)?.hideTitleBarChrome()
+        }
         let frame = NSRect(x: anchor.x, y: anchor.y - height, width: width, height: height)
+        isSettingFrame = true
         panel.setFrame(frame, display: true)
+        isSettingFrame = false
     }
 
     /// The persisted clipboard height, clamped to the range dragging is allowed within.
@@ -432,38 +467,19 @@ final class PaletteWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - Clipboard resize
 
-    /// Drags the clipboard window's bottom edge; `commit` persists the drag's end.
-    /// Deliberately not AppKit's native `.resizable`/live-drag resize: an `NSHostingView`-backed
-    /// borderless panel crashes mid-live-resize (`NSHostingView.updateAnimatedWindowSize` throws
-    /// from inside `windowDidLayout`, `EXC_CRASH`/`SIGABRT`) — a discrete `setFrame` from our own
-    /// gesture, outside that "fromServer" tracked-resize path, does not.
-    func resizeClipboardHeight(to height: CGFloat, commit: Bool) {
-        guard let panel, let anchor = resolveAnchor() else { return }
-        let size = metrics.size
-        let clamped = min(
-            max(height, Theme.Size.clipboardWindowHeightRange.lowerBound),
-            Theme.Size.clipboardWindowHeightRange.upperBound)
-        let width = clipboardWidth(size: size)
-        panel.setFrame(
-            NSRect(x: anchor.x, y: anchor.y - clamped, width: width, height: clamped),
-            display: true)
-        guard commit else { return }
-        core.settings.clipboardWindowHeight = Double(clamped)
-    }
-
-    /// Drags the clipboard window's trailing edge; `commit` persists the drag's end.
-    func resizeClipboardWidth(to width: CGFloat, commit: Bool) {
-        guard let panel, let anchor = resolveAnchor() else { return }
-        let size = metrics.size
-        let clamped = min(
-            max(width, Theme.Size.clipboardWindowWidthRange.lowerBound),
-            Theme.Size.clipboardWindowWidthRange.upperBound)
-        let height = clipboardHeight(size: size)
-        panel.setFrame(
-            NSRect(x: anchor.x, y: anchor.y - height, width: clamped, height: height),
-            display: true)
-        guard commit else { return }
-        core.settings.clipboardWindowWidth = Double(clamped)
+    /// Persists a native edge/corner resize. `min`/`maxSize` already clamped it, and AppKit owns
+    /// the frame mid-drag, so this only records where it landed — it never rewrites the frame,
+    /// which is what fought the drag before. A top/left-edge drag moves the corner too, so the
+    /// new top-left is the anchor the next summon opens against.
+    func windowDidResize(_ notification: Notification) {
+        guard let panel, !isSettingFrame, core.palette.mode == .clipboard else { return }
+        let topLeft = CGPoint(x: panel.frame.minX, y: panel.frame.maxY)
+        if topLeft != anchor {
+            anchor = topLeft
+            rememberPosition(topLeft)
+        }
+        core.settings.clipboardWindowWidth = Double(panel.frame.width)
+        core.settings.clipboardWindowHeight = Double(panel.frame.height)
     }
 
     /// The display to anchor to; never `NSScreen.main`, which follows the focused window.

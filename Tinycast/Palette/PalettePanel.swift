@@ -205,10 +205,13 @@ final class PalettePanel: NSPanel {
         super.sendEvent(event)
     }
     init<Content: View>(rootView: Content) {
+        // `.titled`, never `.borderless`: a borderless `NSHostingView` panel aborts inside AppKit's
+        // own live-resize cycle the moment `.resizable` lets an edge be dragged. The title bar
+        // itself is fully hidden below; only its constraint scaffolding is wanted.
         super.init(
             contentRect: NSRect(
                 x: 0, y: 0, width: Theme.Size.panelWidth, height: Theme.Size.panelHeight),
-            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
+            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -220,6 +223,8 @@ final class PalettePanel: NSPanel {
         isMovableByWindowBackground = false
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
+        titlebarSeparatorStyle = .none
+        hideTitleBarChrome()
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
@@ -231,6 +236,13 @@ final class PalettePanel: NSPanel {
         // The controller owns the frame; without this the top edge drifts on the swap.
         hosting.sizingOptions = []
         contentView = hosting
+    }
+
+    /// Re-run after any `styleMask` change: AppKit can grow a traffic light back on the swap.
+    func hideTitleBarChrome() {
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            standardWindowButton(button)?.isHidden = true
+        }
     }
 
     /// Losing the keyboard is the last modifier news the panel gets; a re-show may skip `prepare`.

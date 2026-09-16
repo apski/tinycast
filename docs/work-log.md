@@ -6,33 +6,37 @@ conflict on a merge occasionally; just keep both sides' entries.
 
 One entry per feature: what changed, why, and the commit that carries it.
 
-## 2026-09-16 — Clipboard: resizable window, both axes
+## 2026-09-16 — Clipboard: natively resizable window, both axes, position remembered
 
-- The clipboard screen's window can be resized wider/narrower and taller/shorter, clamped to
+- The clipboard screen's window is natively resizable (drag any edge or corner, and AX tools /
+  modifier-drag window managers like Moves work too), clamped to
   `Theme.Size.clipboardWindowWidthRange` (750–1100pt) and `...HeightRange` (475–900pt). Every other
   screen keeps the fixed panel size; `PaletteWindowController.positionPanel` only reads the clipboard
   width/height when `core.palette.mode == .clipboard`.
-- Both persist per Mac in `AppSettings.clipboardWindowWidth`/`clipboardWindowHeight` (nil = default),
-  excluded from settings backups as machine-local geometry, same as `clipboardListWidth`/`palettePosition`.
-- Two SwiftUI `DragGesture` edge handles (`ClipboardHeightResizeHandle` on the bottom edge,
-  `ClipboardWidthResizeHandle` on the trailing edge, both in `RootPaletteView.swift`), each calling a
-  discrete `PaletteWindowController.resizeClipboardHeight`/`resizeClipboardWidth(to:commit:)` —
-  a direct `panel.setFrame` per drag tick, committed to `AppSettings` only on release.
-- **This deliberately is not AppKit's native `.resizable`/live window-edge resize.** An earlier
-  version added `.resizable` to `PalettePanel`'s `styleMask` in clipboard mode so the OS's own
-  edge/corner drag (and an Accessibility-driven resize, e.g. a modifier-drag window manager like
-  Moves/Rectangle/Loop) would work. It crashed: dragging an edge live sent the process straight into
-  `abort()` — `NSHostingView.updateAnimatedWindowSize` → `windowDidLayout` →
+- Size persists per Mac in `AppSettings.clipboardWindowWidth`/`clipboardWindowHeight` (nil = default);
+  position persists via the existing `palettePosition` path — `windowDidMove`/`windowDidResize` now
+  record the top-left after *any* move, not only our own drag handle, so a window moved by an external
+  tool re-opens where it was left. All excluded from settings backups as machine-local geometry.
+- **Making native `.resizable` work took getting past a crash.** A first attempt added `.resizable`
+  to `PalettePanel`'s existing `[.borderless, …]` `styleMask`; dragging an edge live aborted inside
+  AppKit's own resize cycle — `NSHostingView.updateAnimatedWindowSize` → `windowDidLayout` →
   `_postWindowNeedsUpdateConstraints` throwing `NSInternalInconsistencyException`, uncaught,
-  `EXC_CRASH`/`SIGABRT`. Confirmed via `~/Library/Logs/DiagnosticReports/Tinycast-*.ips`: the crash
-  sits entirely inside AppKit/SwiftUI's own `_setFrameCommon:display:fromServer:` (the "fromServer"
-  live-resize-tracking path) — not in any of our delegate code, and it survived an interim fix that
-  deferred our own `windowDidResize` correction by a run-loop tick. An `NSHostingView`-backed
-  borderless panel with `hosting.sizingOptions = []` (see `PalettePanel.swift`, needed so the top
-  edge doesn't drift on a content swap) just doesn't survive a live/interactive AppKit resize on this
-  OS build. A gesture-driven, one-shot `setFrame` never enters that "fromServer" tracked path, so it
-  doesn't crash — the trade-off is that a resize can only come from inside the app; an external
-  modifier-drag tool has nothing to grab, since AX-settable size also needs `.resizable`.
+  `EXC_CRASH`/`SIGABRT` (confirmed via `~/Library/Logs/DiagnosticReports/Tinycast-*.ips`; the whole
+  stack is Apple frameworks, none of our code). The fix: give the panel a real `.titled` style mask
+  but hide the title bar completely (`titleVisibility = .hidden`, `titlebarAppearsTransparent`,
+  `titlebarSeparatorStyle = .none`, and `hideTitleBarChrome()` hides the three traffic-light
+  buttons). A borderless `NSHostingView` panel has no title-bar constraint scaffolding, and that is
+  what AppKit's live-resize path trips over; a titled-but-hidden one has it and survives.
+  `hideTitleBarChrome()` is re-run whenever `positionPanel` toggles `.resizable`, since a style-mask
+  change can grow the buttons back.
+- Clamping is native: `positionPanel` sets `panel.minSize`/`maxSize` to the clipboard ranges while
+  resizable (and pins both to the fixed size otherwise), so AppKit enforces the bounds mid-drag with
+  no `windowWillResize` delegate policing the size. `windowDidResize`/`windowDidMove` only *record*
+  the result — they never call `setFrame`, which is what fought the live drag in an interim version.
+  `isSettingFrame` guards our own programmatic `setFrame` in `positionPanel` so its delegate
+  callbacks don't get persisted as user drags.
+- Note: synthetic CGEvent drags do not model native edge-resize faithfully (they blew past `maxSize`
+  and grew symmetrically in a probe) — this was verified by real mouse dragging, not the probe.
 
 ## 2026-09-16 — Clipboard: skip pins on open, pin descriptions, resizable split
 
