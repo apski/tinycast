@@ -123,11 +123,6 @@ final class PaletteCoordinator {
         windowController.applyCollapsed(paletteIsCollapsed)
     }
 
-    /// Drags the clipboard window's bottom edge; `commit` is true only on release.
-    func resizeClipboardWindow(to height: CGFloat, commit: Bool) {
-        windowController.resizeClipboardWindow(to: height, commit: commit)
-    }
-
     // MARK: - Dragging
 
     /// Bracket one drag gesture; the handle tracks it from mouse-down to mouse-up itself.

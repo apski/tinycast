@@ -8,15 +8,23 @@ One entry per feature: what changed, why, and the commit that carries it.
 
 ## 2026-09-16 — Clipboard: resizable window height
 
-- The clipboard screen's window can be resized taller/shorter by dragging its bottom edge, from
+- The clipboard screen's window can be resized taller/shorter, clamped to
   `Theme.Size.clipboardWindowHeightRange` (475–900pt). Every other screen keeps the fixed panel
   height; `PaletteWindowController.positionPanel` only reads the clipboard height when
   `core.palette.mode == .clipboard`.
 - The height persists per Mac in `AppSettings.clipboardWindowHeight` (nil = default), excluded from
   settings backups as machine-local geometry, same as `clipboardListWidth`/`palettePosition`.
-- New `PaletteWindowController.resizeClipboardWindow(to:commit:)`, forwarded through
-  `PaletteCoordinator`, and a `ClipboardWindowResizeHandle` drag strip in `RootPaletteView`
-  (bottom-edge overlay, shown only in clipboard mode).
+- Resizing is native AppKit window resizing, not a custom SwiftUI drag handle: `PalettePanel`'s
+  `styleMask` gains `.resizable` only while collapsed is false and the mode is `.clipboard`, so the
+  OS's own edge/corner drag regions work, and so does any Accessibility-driven resize (a modifier-drag
+  window manager like Moves/Rectangle/Loop, which sets the frame directly and never goes through
+  `windowWillResize`). `PaletteWindowController.windowWillResize` locks the width and clamps the
+  height for a live interactive drag; `windowDidResize` is the catch-all that corrects and persists a
+  frame set any other way, guarded by `isSettingClipboardFrame` so its own correction — and every
+  programmatic resize from `positionPanel` — never re-enters or gets written back to settings as if
+  the user had dragged it. An earlier version used a custom SwiftUI bottom-edge `DragGesture`;
+  that only handled dragging inside the app and didn't make the window resizable at the AppKit/AX
+  level, so external tools like Moves couldn't grab it.
 
 ## 2026-09-16 — Clipboard: skip pins on open, pin descriptions, resizable split
 
