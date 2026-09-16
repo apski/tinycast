@@ -6,6 +6,18 @@ conflict on a merge occasionally; just keep both sides' entries.
 
 One entry per feature: what changed, why, and the commit that carries it.
 
+## 2026-09-16 — Clipboard: resizable window height
+
+- The clipboard screen's window can be resized taller/shorter by dragging its bottom edge, from
+  `Theme.Size.clipboardWindowHeightRange` (475–900pt). Every other screen keeps the fixed panel
+  height; `PaletteWindowController.positionPanel` only reads the clipboard height when
+  `core.palette.mode == .clipboard`.
+- The height persists per Mac in `AppSettings.clipboardWindowHeight` (nil = default), excluded from
+  settings backups as machine-local geometry, same as `clipboardListWidth`/`palettePosition`.
+- New `PaletteWindowController.resizeClipboardWindow(to:commit:)`, forwarded through
+  `PaletteCoordinator`, and a `ClipboardWindowResizeHandle` drag strip in `RootPaletteView`
+  (bottom-edge overlay, shown only in clipboard mode).
+
 ## 2026-09-16 — Clipboard: skip pins on open, pin descriptions, resizable split
 
 - Opening the clipboard screen (or clearing its filter/query) selects the first unpinned entry

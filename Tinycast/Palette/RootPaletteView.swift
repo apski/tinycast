@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct RootPaletteView: View {
@@ -261,6 +262,9 @@ struct RootPaletteView: View {
                 }
                 // The panel has no title bar, so this thin top margin is the only place left to grab it.
                 .overlay(alignment: .top) { topDragStrip }
+                .overlay(alignment: .bottom) {
+                    if vm.mode == .clipboard { clipboardResizeHandle }
+                }
                 .modifier(
                     ExtensionToastOverlay(extensions: extensions, showing: vm.mode == .extensionCommand)
                 )
@@ -381,6 +385,8 @@ struct RootPaletteView: View {
                 if vm.mode != .customCommandArguments {
                     core.customCommandCoordinator.cancelCustomCommandArguments()
                 }
+                // Only the clipboard screen keeps its own height; every other mode uses the default.
+                core.paletteCoordinator.syncPaletteSize()
             }
             // `prepare` may change nothing, so this intent still snaps the scroll to the origin.
             .onChange(of: vm.resetToken) {
@@ -587,6 +593,16 @@ struct RootPaletteView: View {
 
     private func beginDrag() { core.paletteCoordinator.beginPaletteDrag() }
     private func endDrag() { core.paletteCoordinator.endPaletteDrag() }
+
+    /// A thin strip along the bottom edge, dragged to grow or shrink the clipboard window.
+    private var clipboardResizeHandle: some View {
+        ClipboardWindowResizeHandle(
+            currentHeight: settings.clipboardWindowHeight.map { CGFloat($0) } ?? metrics.size.panelHeight,
+            range: Theme.Size.clipboardWindowHeightRange
+        ) { height, ended in
+            core.paletteCoordinator.resizeClipboardWindow(to: height, commit: ended)
+        }
+    }
 
     /// A command can push a Form over its own list, which takes the keyboard mid-session.
     private func applySearchFieldHiding(_ hidden: Bool) {
@@ -1285,5 +1301,45 @@ private struct HeaderBackButton: View {
         .onHover { hovered = $0 }
         .animation(.easeOut(duration: Theme.Duration.hover), value: hovered)
         .help(help)
+    }
+}
+
+/// A thin edge with a wider drag target; reports the dragged height, clamped to `range`.
+private struct ClipboardWindowResizeHandle: View {
+    /// The window's height right now, so a fresh drag starts from wherever it currently sits.
+    let currentHeight: CGFloat
+    let range: ClosedRange<CGFloat>
+    /// The candidate height and whether the drag ended; the caller decides what either means.
+    let onChange: (CGFloat, Bool) -> Void
+
+    private static let hitHeight: CGFloat = 7
+
+    /// Captured once per drag, so `currentHeight` moving mid-drag can't compound the delta.
+    @State private var startHeight: CGFloat?
+
+    var body: some View {
+        Color.clear
+            .frame(height: Self.hitHeight)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let base = startHeight ?? currentHeight
+                        startHeight = base
+                        onChange(clamp(base + value.translation.height), false)
+                    }
+                    .onEnded { value in
+                        let base = startHeight ?? currentHeight
+                        onChange(clamp(base + value.translation.height), true)
+                        startHeight = nil
+                    }
+            )
+    }
+
+    private func clamp(_ height: CGFloat) -> CGFloat {
+        min(max(height, range.lowerBound), range.upperBound)
     }
 }
