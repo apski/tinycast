@@ -55,6 +55,25 @@ enum AppActionsMenu {
                     favorites.move(1)
                 })
         }
+        if isPersistent {
+            let current = core.aliases.alias(for: app.preferenceKey) ?? ""
+            items.append(
+                PopoverMenuItem(
+                    title: current.isEmpty ? "Assign Alias" : "Change Alias",
+                    systemImage: "character.cursor.ibeam", startsSection: true
+                ) {
+                    Task {
+                        guard
+                            let alias = await core.promptText(
+                                title: "Assign Alias",
+                                message: "Type this instead of the name to jump straight here.",
+                                symbol: "character.cursor.ibeam", placeholder: "Alias",
+                                initialValue: current, confirmTitle: "Save")
+                        else { return }
+                        core.aliases.setAlias(alias, for: app.preferenceKey)
+                    }
+                })
+        }
         if core.launcherRanking.hasRanking(for: app.preferenceKey) {
             items.append(
                 PopoverMenuItem(title: "Reset Ranking", systemImage: "arrow.counterclockwise") {

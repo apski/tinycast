@@ -6,6 +6,20 @@ conflict on a merge occasionally; just keep both sides' entries.
 
 One entry per feature: what changed, why, and the commit that carries it.
 
+## 2026-09-17 — Launcher: assign an alias from the ⌘K Actions menu
+
+- Any persistent launcher row's Actions menu (⌘K / right-click) now has an **Assign Alias** item
+  (titled **Change Alias** when one is already set). It prompts via `core.promptText` and writes
+  through the existing `AliasStore` (`core.aliases.setAlias(_, for: app.preferenceKey)`) — a blank
+  value clears it, so assign/change/clear are one item. Works for every `AppEntry.Kind`, not just
+  system actions.
+- No new model/store/matcher: aliasing already existed and was reachable only from Settings (each
+  `LauncherItemRow` renders `AliasField`); this adds the inline launcher entry point that was
+  missing. Gated by the same `isPersistent` (`!CommandCatalog.isQueryDriven`) check as Favorites —
+  a query-driven row lives only for its query, so no preference could outlive it.
+
+Commit: `5236e25`
+
 ## 2026-09-16 — Clipboard: natively resizable window, both axes, position remembered
 
 - The clipboard screen's window is natively resizable (drag any edge or corner, and AX tools /
