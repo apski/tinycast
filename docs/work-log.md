@@ -18,7 +18,7 @@ One entry per feature: what changed, why, and the commit that carries it.
   missing. Gated by the same `isPersistent` (`!CommandCatalog.isQueryDriven`) check as Favorites —
   a query-driven row lives only for its query, so no preference could outlive it.
 
-Commit: `5236e25`
+Commit: `6406f6b`
 
 ## 2026-09-16 — Clipboard: natively resizable window, both axes, position remembered
 
